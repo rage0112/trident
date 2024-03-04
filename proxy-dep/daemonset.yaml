@@ -1,0 +1,243 @@
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: DaemonSet
+  metadata:
+    annotations:
+      deprecated.daemonset.template.generation: "3"
+    creationTimestamp: "2024-02-20T07:05:52Z"
+    generation: 3
+    labels:
+      app: node.csi.trident.netapp.io
+      kubectl.kubernetes.io/default-container: trident-main
+    name: trident-node-linux
+    namespace: trident2
+    resourceVersion: "2917689"
+    uid: 15b5d4bc-4f0a-4209-99d2-a57185c9224b
+  spec:
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app: node.csi.trident.netapp.io
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: node.csi.trident.netapp.io
+      spec:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: kubernetes.io/arch
+                  operator: In
+                  values:
+                  - arm64
+                  - amd64
+                - key: kubernetes.io/os
+                  operator: In
+                  values:
+                  - linux
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - node.csi.trident.netapp.io
+              topologyKey: kubernetes.io/hostname
+        containers:
+        - args:
+          - --no_persistence
+          - --k8s_pod
+          - --rest=false
+          - --csi_node_name=$(KUBE_NODE_NAME)
+          - --csi_endpoint=$(CSI_ENDPOINT)
+          - --csi_role=node
+          - --log_format=text
+          - --log_level=trace
+          - --log_workflows=
+          - --log_layers=
+          - --disable_audit_log=true
+          - --http_request_timeout=1m30s
+          - --https_rest
+          - --https_port=17546
+          - --enable_force_detach=false
+          command:
+          - /trident_orchestrator
+          env:
+          - name: KUBE_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          - name: KUBELET_DIR
+            value: /var/lib/kubelet
+          - name: CSI_ENDPOINT
+            value: unix://plugin/csi.sock
+          - name: PATH
+            value: /netapp:/bin
+          image: rage0112/trident:0216
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /liveness
+              port: 17546
+              scheme: HTTPS
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          name: trident-main
+          readinessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /readiness
+              port: 17546
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources: {}
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add:
+              - SYS_ADMIN
+              drop:
+              - all
+            privileged: true
+          startupProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /liveness
+              port: 17546
+              scheme: HTTPS
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /plugin
+            name: plugin-dir
+          - mountPath: /var/lib/kubelet/plugins
+            mountPropagation: Bidirectional
+            name: plugins-mount-dir
+          - mountPath: /var/lib/kubelet/pods
+            mountPropagation: Bidirectional
+            name: pods-mount-dir
+          - mountPath: /dev
+            name: dev-dir
+          - mountPath: /sys
+            name: sys-dir
+          - mountPath: /host
+            mountPropagation: Bidirectional
+            name: host-dir
+          - mountPath: /var/lib/trident/tracking
+            mountPropagation: Bidirectional
+            name: trident-tracking-dir
+          - mountPath: /certs
+            name: certs
+            readOnly: true
+        - args:
+          - --v=2
+          - --csi-address=$(ADDRESS)
+          - --kubelet-registration-path=$(REGISTRATION_PATH)
+          env:
+          - name: ADDRESS
+            value: /plugin/csi.sock
+          - name: REGISTRATION_PATH
+            value: /var/lib/kubelet/plugins/csi.trident.netapp.io/csi.sock
+          - name: KUBE_NODE_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: spec.nodeName
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.9.0
+          imagePullPolicy: IfNotPresent
+          name: driver-registrar
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /plugin
+            name: plugin-dir
+          - mountPath: /registration
+            name: registration-dir
+        dnsPolicy: ClusterFirstWithHostNet
+        hostIPC: true
+        hostNetwork: true
+        hostPID: true
+        priorityClassName: system-node-critical
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: trident-node-linux
+        serviceAccountName: trident-node-linux
+        terminationGracePeriodSeconds: 30
+        tolerations:
+        - effect: NoExecute
+          operator: Exists
+        - effect: NoSchedule
+          operator: Exists
+        volumes:
+        - hostPath:
+            path: /var/lib/kubelet/plugins/csi.trident.netapp.io/
+            type: DirectoryOrCreate
+          name: plugin-dir
+        - hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: Directory
+          name: registration-dir
+        - hostPath:
+            path: /var/lib/kubelet/plugins
+            type: DirectoryOrCreate
+          name: plugins-mount-dir
+        - hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+          name: pods-mount-dir
+        - hostPath:
+            path: /dev
+            type: Directory
+          name: dev-dir
+        - hostPath:
+            path: /sys
+            type: Directory
+          name: sys-dir
+        - hostPath:
+            path: /
+            type: Directory
+          name: host-dir
+        - hostPath:
+            path: /var/lib/trident/tracking
+            type: DirectoryOrCreate
+          name: trident-tracking-dir
+        - name: certs
+          projected:
+            defaultMode: 420
+            sources:
+            - secret:
+                name: trident-csi
+            - secret:
+                name: trident-encryption-keys
+    updateStrategy:
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+      type: RollingUpdate
+  status:
+    currentNumberScheduled: 2
+    desiredNumberScheduled: 2
+    numberAvailable: 2
+    numberMisscheduled: 0
+    numberReady: 2
+    observedGeneration: 3
+    updatedNumberScheduled: 2
+kind: List
+metadata:
+  resourceVersion: ""
